@@ -333,6 +333,12 @@ Resources:
     Properties:
       ClusterName: ecs-cicd-cluster
 
+  CodeDeployApplication:
+    Type: AWS::CodeDeploy::Application
+    Properties:
+      ComputePlatform: ECS
+
+
   AppLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:

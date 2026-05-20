@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Base infrastructure for ECS Fargate Java app with public ALB, private tasks, VPC endpoints, CloudWatch Logs, and ECS service autoscaling.'
+Description: 'Base infrastructure for ECS Fargate Java app with public ALB, private tasks, VPC endpoints, CloudWatch Logs, and ECS Service autoscaling.'
 
 Parameters:
   VpcCidr:

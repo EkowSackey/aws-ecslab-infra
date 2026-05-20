@@ -303,7 +303,7 @@ Resources:
       UnhealthyThresholdCount: 3
       HealthCheckIntervalSeconds: 30
 
-    GreenTargetGroup:
+  GreenTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
       VpcId: !Ref VPC
@@ -317,7 +317,6 @@ Resources:
       HealthyThresholdCount: 2
       UnhealthyThresholdCount: 3
       HealthCheckIntervalSeconds: 30
-
 
   Listener:
     Type: AWS::ElasticLoadBalancingV2::Listener

@@ -333,6 +333,20 @@ Resources:
     Properties:
       ClusterName: ecs-cicd-cluster
 
+  CodeDeployServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codedeploy.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSCodeDeployRoleForECS
+
+
   CodeDeployApplication:
     Type: AWS::CodeDeploy::Application
     Properties:

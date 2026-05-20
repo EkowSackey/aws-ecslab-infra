@@ -303,6 +303,22 @@ Resources:
       UnhealthyThresholdCount: 3
       HealthCheckIntervalSeconds: 30
 
+    GreenTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VPC
+      Protocol: HTTP
+      Port: !Ref ContainerPort
+      TargetType: ip
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      Matcher:
+        HttpCode: 200
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      HealthCheckIntervalSeconds: 30
+
+
   Listener:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:

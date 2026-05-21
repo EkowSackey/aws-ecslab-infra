@@ -436,6 +436,47 @@ Resources:
                   - iam:PassRole
                 Resource: '*'
 
+  DeploymentPipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      RoleArn: !GetAtt CodePipelineServiceRole.Arn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref CodePipelineArtifactBucket
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: SourceArtifact
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: S3
+                Version: '1'
+              Configuration:
+                S3Bucket: !Ref CodePipelineArtifactBucket
+                S3ObjectKey: placeholder.zip
+                PollForSourceChanges: false
+              OutputArtifacts:
+                - Name: SourceOutput
+              RunOrder: 1
+        - Name: Deploy
+          Actions:
+            - Name: ECSBlueGreenDeploy
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CodeDeployToECS
+                Version: '1'
+              Configuration:
+                ApplicationName: !Ref CodeDeployApplication
+                DeploymentGroupName: !Ref CodeDeployDeploymentGroup
+                TaskDefinitionTemplateArtifact: SourceOutput
+                AppSpecTemplateArtifact: SourceOutput
+                AppSpecTemplatePath: appspec.yaml
+                TaskDefinitionTemplatePath: taskdef.json
+              InputArtifacts:
+                - Name: SourceOutput
+              RunOrder: 1
 
 
   AppLogGroup:

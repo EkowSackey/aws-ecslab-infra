@@ -430,6 +430,8 @@ Resources:
                   - ecs:DescribeTaskSets
                   - ecs:ListTasks
                   - ecs:UpdateService
+                  - ecs:RegisterTaskDefinition
+                  - ecs:DeregisterTaskDefinition
                 Resource: '*'
               - Effect: Allow
                 Action:

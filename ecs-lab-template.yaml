@@ -478,6 +478,49 @@ Resources:
                 - Name: SourceOutput
               RunOrder: 1
 
+  EcrImagePushRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Trigger CodePipeline when a new image is pushed to ECR
+      EventPattern:
+        source:
+          - aws.ecr
+        detail-type:
+          - ECR Image Action
+        detail:
+          action-type:
+            - PUSH
+          result:
+            - SUCCESS
+          repository-name:
+            - saki-ecs-cicd-lab
+      State: ENABLED
+      Targets:
+        - Arn: !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${DeploymentPipeline}
+          Id: CodePipelineTarget
+          RoleArn: !GetAtt EventBridgeInvokePipelineRole.Arn
+
+
+  EventBridgeInvokePipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: eventbridge-start-pipeline
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - codepipeline:StartPipelineExecution
+                Resource: !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${DeploymentPipeline}
+
 
   AppLogGroup:
     Type: AWS::Logs::LogGroup

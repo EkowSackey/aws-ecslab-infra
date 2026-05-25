@@ -68,14 +68,6 @@ Parameters:
     Type: String
     Default: photodb
 
-  DbUsername:
-    Type: String
-    Default: postgres
-
-  DbPassword:
-    Type: String
-    NoEcho: true
-
   DbAllocatedStorage:
     Type: Number
     Default: 20
@@ -274,783 +266,13 @@ Resources:
       SecurityGroupIds:
         - !Ref EndpointSecurityGroup
 
-  ALBSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Allow public HTTP to ALB
-      VpcId: !Ref VPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
-          CidrIp: 0.0.0.0/0
-      Tags:
-        - Key: Name
-          Value: ecs-cicd-alb-sg
-
-  ECSTaskSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Allow app traffic only from ALB
-      VpcId: !Ref VPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: !Ref ContainerPort
-          ToPort: !Ref ContainerPort
-          SourceSecurityGroupId: !Ref ALBSecurityGroup
-      SecurityGroupEgress:
-        - IpProtocol: -1
-          CidrIp: 0.0.0.0/0
-      Tags:
-        - Key: Name
-          Value: ecs-cicd-task-sg
-
-  LoadBalancer:
-    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
-    Properties:
-      Scheme: internet-facing
-      Type: application
-      Subnets:
-        - !Ref PublicSubnet1
-        - !Ref PublicSubnet2
-      SecurityGroups:
-        - !Ref ALBSecurityGroup
-
-  ApplicationTargetGroup:
-    Type: AWS::ElasticLoadBalancingV2::TargetGroup
-    Properties:
-      VpcId: !Ref VPC
-      Protocol: HTTP
-      Port: !Ref ContainerPort
-      TargetType: ip
-      HealthCheckPath: /
-      HealthCheckProtocol: HTTP
-      Matcher:
-        HttpCode: 200
-      HealthyThresholdCount: 2
-      UnhealthyThresholdCount: 3
-      HealthCheckIntervalSeconds: 30
-
-  GreenTargetGroup:
-    Type: AWS::ElasticLoadBalancingV2::TargetGroup
-    Properties:
-      VpcId: !Ref VPC
-      Protocol: HTTP
-      Port: !Ref ContainerPort
-      TargetType: ip
-      HealthCheckPath: /
-      HealthCheckProtocol: HTTP
-      Matcher:
-        HttpCode: 200
-      HealthyThresholdCount: 2
-      UnhealthyThresholdCount: 3
-      HealthCheckIntervalSeconds: 30
-
-  Listener:
-    Type: AWS::ElasticLoadBalancingV2::Listener
-    Properties:
-      LoadBalancerArn: !Ref LoadBalancer
-      Protocol: HTTP
-      Port: 80
-      DefaultActions:
-        - Type: forward
-          TargetGroupArn: !Ref ApplicationTargetGroup
-
-  ECSCluster:
-    Type: AWS::ECS::Cluster
-    Properties:
-      ClusterName: ecs-cicd-cluster
-
-  CodeDeployServiceRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: codedeploy.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/AWSCodeDeployRoleForECS
-
-
-  CodeDeployApplication:
-    Type: AWS::CodeDeploy::Application
-    Properties:
-      ComputePlatform: ECS
-
-
-  CodeDeployDeploymentGroup:
-    Type: AWS::CodeDeploy::DeploymentGroup
-    Properties:
-      ApplicationName: !Ref CodeDeployApplication
-      DeploymentGroupName: ecs-blue-green-dg
-      ServiceRoleArn: !GetAtt CodeDeployServiceRole.Arn
-      DeploymentStyle:
-        DeploymentType: BLUE_GREEN
-        DeploymentOption: WITH_TRAFFIC_CONTROL
-      BlueGreenDeploymentConfiguration:
-        DeploymentReadyOption:
-          ActionOnTimeout: CONTINUE_DEPLOYMENT
-        TerminateBlueInstancesOnDeploymentSuccess:
-          Action: TERMINATE
-          TerminationWaitTimeInMinutes: 5
-      AutoRollbackConfiguration:
-        Enabled: true
-        Events:
-          - DEPLOYMENT_FAILURE
-      ECSServices:
-        - ClusterName: !Ref ECSCluster
-          ServiceName: !GetAtt ECSService.Name
-      LoadBalancerInfo:
-        TargetGroupPairInfoList:
-          - TargetGroups:
-              - Name: !GetAtt ApplicationTargetGroup.TargetGroupName
-              - Name: !GetAtt GreenTargetGroup.TargetGroupName
-            ProdTrafficRoute:
-              ListenerArns:
-                - !Ref Listener
-
-  CodePipelineArtifactBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      VersioningConfiguration:
-        Status: Enabled
-
-  CodePipelineServiceRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: codepipeline.amazonaws.com
-            Action: sts:AssumeRole
-      Policies:
-        - PolicyName: codepipeline-inline-policy
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - s3:GetObject
-                  - s3:GetObjectVersion
-                  - s3:PutObject
-                  - s3:GetBucketVersioning
-                Resource:
-                  - !GetAtt CodePipelineArtifactBucket.Arn
-                  - !Sub '${CodePipelineArtifactBucket.Arn}/*'
-              - Effect: Allow
-                Action:
-                  - codedeploy:CreateDeployment
-                  - codedeploy:GetApplication
-                  - codedeploy:GetApplicationRevision
-                  - codedeploy:GetDeployment
-                  - codedeploy:GetDeploymentConfig
-                  - codedeploy:RegisterApplicationRevision
-                Resource: '*'
-              - Effect: Allow
-                Action:
-                  - ecs:DescribeServices
-                  - ecs:DescribeTaskDefinition
-                  - ecs:DescribeTaskSets
-                  - ecs:ListTasks
-                  - ecs:UpdateService
-                  - ecs:RegisterTaskDefinition
-                  - ecs:DeregisterTaskDefinition
-                Resource: '*'
-              - Effect: Allow
-                Action:
-                  - iam:PassRole
-                Resource: '*'
-
-  DeploymentPipeline:
-    Type: AWS::CodePipeline::Pipeline
-    Properties:
-      RoleArn: !GetAtt CodePipelineServiceRole.Arn
-      ArtifactStore:
-        Type: S3
-        Location: !Ref CodePipelineArtifactBucket
-      Stages:
-        - Name: Source
-          Actions:
-            - Name: SourceArtifact
-              ActionTypeId:
-                Category: Source
-                Owner: AWS
-                Provider: S3
-                Version: '1'
-              Configuration:
-                S3Bucket: !Ref CodePipelineArtifactBucket
-                S3ObjectKey: placeholder.zip
-                PollForSourceChanges: false
-              OutputArtifacts:
-                - Name: SourceOutput
-              RunOrder: 1
-        - Name: Deploy
-          Actions:
-            - Name: ECSBlueGreenDeploy
-              ActionTypeId:
-                Category: Deploy
-                Owner: AWS
-                Provider: CodeDeployToECS
-                Version: '1'
-              Configuration:
-                ApplicationName: !Ref CodeDeployApplication
-                DeploymentGroupName: !Ref CodeDeployDeploymentGroup
-                TaskDefinitionTemplateArtifact: SourceOutput
-                AppSpecTemplateArtifact: SourceOutput
-                AppSpecTemplatePath: appspec.yaml
-                TaskDefinitionTemplatePath: taskdef.json
-              InputArtifacts:
-                - Name: SourceOutput
-              RunOrder: 1
-
-  EcrImagePushRule:
-    Type: AWS::Events::Rule
-    Properties:
-      Description: Trigger CodePipeline when a new image is pushed to ECR
-      EventPattern:
-        source:
-          - aws.ecr
-        detail-type:
-          - ECR Image Action
-        detail:
-          action-type:
-            - PUSH
-          result:
-            - SUCCESS
-          repository-name:
-            - saki-ecs-cicd-lab
-      State: ENABLED
-      Targets:
-        - Arn: !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${DeploymentPipeline}
-          Id: CodePipelineTarget
-          RoleArn: !GetAtt EventBridgeInvokePipelineRole.Arn
-
-
-  EventBridgeInvokePipelineRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: events.amazonaws.com
-            Action: sts:AssumeRole
-      Policies:
-        - PolicyName: eventbridge-start-pipeline
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - codepipeline:StartPipelineExecution
-                Resource: !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${DeploymentPipeline}
-
-
-  AppLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: /ecs/ecs-cicd-java-app
-      RetentionInDays: 7
-
-  TaskExecutionRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: ecs-tasks.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
-
-  TaskDefinition:
-    Type: AWS::ECS::TaskDefinition
-    Properties:
-      Family: ecs-cicd-java-app-task
-      Cpu: !Ref TaskCpu
-      Memory: !Ref TaskMemory
-      NetworkMode: awsvpc
-      RequiresCompatibilities:
-        - FARGATE
-      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
-      TaskRoleArn: !GetAtt TaskRole.Arn
-      ContainerDefinitions:
-        - Name: ecs-cicd-java-app
-          Image: !Ref EcrImageUri
-          Essential: true
-          PortMappings:
-            - ContainerPort: !Ref ContainerPort
-              Protocol: tcp
-          LogConfiguration:
-            LogDriver: awslogs
-            Options:
-              awslogs-group: !Ref AppLogGroup
-              awslogs-region: !Ref AWS::Region
-              awslogs-stream-prefix: ecs
-          Environment:
-            - Name: DB_HOST
-              Value: !GetAtt PhotoDatabase.Endpoint.Address
-            - Name: DB_PORT
-              Value: !GetAtt PhotoDatabase.Endpoint.Port
-            - Name: DB_NAME
-              Value: !Ref DbName
-            - Name: DB_USERNAME
-              Value: !Ref DbUsername
-            - Name: DB_PASSWORD
-              Value: !Ref DbPassword
-            - Name: S3_BUCKET_NAME
-              Value: !Ref PhotoBucket
-            - Name: CLOUDFRONT_DOMAIN
-              Value: !GetAtt PhotoDistribution.DomainName
-            - Name: AWS_REGION
-              Value: !Ref AWS::Region
-
-
-  ECSService:
-    Type: AWS::ECS::Service
-    DependsOn:
-      - Listener
-    Properties:
-      Cluster: !Ref ECSCluster
-      LaunchType: FARGATE
-      DesiredCount: !Ref DesiredTaskCount
-      TaskDefinition: !Ref TaskDefinition
-      DeploymentController:
-        Type: CODE_DEPLOY
-      NetworkConfiguration:
-        AwsvpcConfiguration:
-          AssignPublicIp: DISABLED
-          SecurityGroups:
-            - !Ref ECSTaskSecurityGroup
-          Subnets:
-            - !Ref PrivateSubnet1
-            - !Ref PrivateSubnet2
-      LoadBalancers:
-        - ContainerName: ecs-cicd-java-app
-          ContainerPort: !Ref ContainerPort
-          TargetGroupArn: !Ref ApplicationTargetGroup
-
-  ECSServiceScalableTarget:
-    Type: AWS::ApplicationAutoScaling::ScalableTarget
-    Properties:
-      MaxCapacity: !Ref MaxTaskCount
-      MinCapacity: !Ref MinTaskCount
-      ResourceId: !Sub 'service/${ECSCluster}/${ECSService.Name}'
-      RoleARN: !Sub 'arn:aws:iam::${AWS::AccountId}:role/aws-service-role/ecs.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_ECSService'
-      ScalableDimension: ecs:service:DesiredCount
-      ServiceNamespace: ecs
-
-  ECSServiceScalingPolicy:
-    Type: AWS::ApplicationAutoScaling::ScalingPolicy
-    Properties:
-      PolicyName: ecs-cpu-target-tracking
-      PolicyType: TargetTrackingScaling
-      ScalingTargetId: !Ref ECSServiceScalableTarget
-      TargetTrackingScalingPolicyConfiguration:
-        PredefinedMetricSpecification:
-          PredefinedMetricType: ECSServiceAverageCPUUtilization
-        TargetValue: 50.0
-        ScaleInCooldown: 60
-        ScaleOutCooldown: 60
-
-# ================================================================
-# Photo lab resources
-# ================================================================
-  RDSSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Allow PostgreSQL only from ECS tasks
-      VpcId: !Ref VPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 5432
-          ToPort: 5432
-          SourceSecurityGroupId: !Ref ECSTaskSecurityGroup
-      Tags:
-        - Key: Name
-          Value: ecs-photo-rds-sg
-
-  DBSubnetGroup:
-    Type: AWS::RDS::DBSubnetGroup
-    Properties:
-      DBSubnetGroupDescription: Private subnets for PostgreSQL
-      SubnetIds:
-        - !Ref PrivateSubnet1
-        - !Ref PrivateSubnet2
-
-  PhotoDatabase:
-    Type: AWS::RDS::DBInstance
-    Properties:
-      Engine: postgres
-      DBInstanceClass: !Ref DbInstanceClass
-      AllocatedStorage: !Ref DbAllocatedStorage
-      DBName: !Ref DbName
-      MasterUsername: !Ref DbUsername
-      MasterUserPassword: !Ref DbPassword
-      DBSubnetGroupName: !Ref DBSubnetGroup
-      VPCSecurityGroups:
-        - !Ref RDSSecurityGroup
-      PubliclyAccessible: false
-      MultiAZ: false
-      BackupRetentionPeriod: 0
-      DeletionProtection: false
-
-  PhotoBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Ref ImageBucketName
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
-
-# allows Cloudfront to access the private S3 bucket without making it public
-  PhotoBucketOAC:
-    Type: AWS::CloudFront::OriginAccessControl
-    Properties:
-      OriginAccessControlConfig:
-        Name: photo-bucket-oac
-        OriginAccessControlOriginType: s3
-        SigningBehavior: always
-        SigningProtocol: sigv4
-
-# serves photos from the S3 bucket via CloudFront with caching and HTTPS
-  PhotoDistribution:
-    Type: AWS::CloudFront::Distribution
-    Properties:
-      DistributionConfig:
-        Enabled: true
-        PriceClass: PriceClass_200
-        Origins:
-          - DomainName: !GetAtt PhotoBucket.RegionalDomainName
-            Id: PhotoBucketOrigin
-            S3OriginConfig: {}
-            OriginAccessControlId: !GetAtt PhotoBucketOAC.Id
-        DefaultCacheBehavior:
-          TargetOriginId: PhotoBucketOrigin
-          ViewerProtocolPolicy: redirect-to-https
-          AllowedMethods:
-            - GET
-            - HEAD
-          CachedMethods:
-            - GET
-            - HEAD
-          Compress: true
-          ForwardedValues:
-            QueryString: false
-            Cookies:
-              Forward: none
-        DefaultRootObject: ''
-
-# keeps the S3 bucket private while allowing CloudFront to read objects for distribution
-  PhotoBucketPolicy:
-    Type: AWS::S3::BucketPolicy
-    Properties:
-      Bucket: !Ref PhotoBucket
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Sid: AllowCloudFrontReadOnly
-            Effect: Allow
-            Principal:
-              Service: cloudfront.amazonaws.com
-            Action: s3:GetObject
-            Resource: !Sub '${PhotoBucket.Arn}/*'
-            Condition:
-              StringEquals:
-                AWS:SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${PhotoDistribution}'
-
-# application uses this role for s3 uploads and downloads without exposing credentials in the task definition
-  TaskRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: ecs-tasks.amazonaws.com
-            Action: sts:AssumeRole
-      Policies:
-        - PolicyName: photo-app-s3-policy
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - s3:PutObject
-                  - s3:GetObject
-                Resource: !Sub '${PhotoBucket.Arn}/*'
-
-Outputs:
-  ALBDNSName:
-    Description: Public ALB DNS name
-    Value: !GetAtt LoadBalancer.DNSName
-
-  ALBURL:
-    Description: Public ALB URL
-    Value: !Sub 'http://${LoadBalancer.DNSName}'
-
-  ECSClusterName:
-    Description: ECS cluster name
-    Value: !Ref ECSCluster
-
-  ECSServiceName:
-    Description: ECS service name
-    Value: !GetAtt ECSService.Name
-
-  TargetGroupArn:AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Base infrastructure for ECS Fargate Java app with public ALB, private tasks, VPC endpoints, CloudWatch Logs, and ECS Service autoscaling.'
-
-Parameters:
-  VpcCidr:
-    Type: String
-    Default: 10.0.0.0/16
-
-  PublicSubnet1Cidr:
-    Type: String
-    Default: 10.0.1.0/24
-
-  PublicSubnet2Cidr:
-    Type: String
-    Default: 10.0.2.0/24
-
-  PrivateSubnet1Cidr:
-    Type: String
-    Default: 10.0.3.0/24
-
-  PrivateSubnet2Cidr:
-    Type: String
-    Default: 10.0.4.0/24
-
-  ContainerPort:
-    Type: Number
-    Default: 8080
-
-  DesiredTaskCount:
-    Type: Number
-    Default: 1
-
-  MinTaskCount:
-    Type: Number
-    Default: 1
-
-  MaxTaskCount:
-    Type: Number
-    Default: 4
-
-  TaskCpu:
-    Type: String
-    Default: '256'
-    AllowedValues:
-      - '256'
-      - '512'
-      - '1024'
-      - '2048'
-
-  TaskMemory:
-    Type: String
-    Default: '512'
-    AllowedValues:
-      - '512'
-      - '1024'
-      - '2048'
-      - '3072'
-      - '4096'
-
-  EcrImageUri:
-    Type: String
-    Description: Full ECR image URI including tag
-
-#================================================================
-# Photo lab params. 
-#================================================================
-  DbName:
-    Type: String
-    Default: photodb
-
-  DbUsername:
-    Type: String
-    Default: postgres
-
-  DbPassword:
-    Type: String
-    NoEcho: true
-
-  DbAllocatedStorage:
-    Type: Number
-    Default: 20
-
-  DbInstanceClass:
-    Type: String
-    Default: db.t3.micro
-
-  ImageBucketName:
-    Type: String
-    Description: Unique S3 bucket name for uploaded images
-
-
-Resources:
-  VPC:
-    Type: AWS::EC2::VPC
-    Properties:
-      CidrBlock: !Ref VpcCidr
-      EnableDnsSupport: true
-      EnableDnsHostnames: true
-      Tags:
-        - Key: Name
-          Value: ecs-cicd-vpc
-
-  InternetGateway:
-    Type: AWS::EC2::InternetGateway
-    Properties:
-      Tags:
-        - Key: Name
-          Value: ecs-cicd-igw
-
-  VPCGatewayAttachment:
-    Type: AWS::EC2::VPCGatewayAttachment
-    Properties:
-      VpcId: !Ref VPC
-      InternetGatewayId: !Ref InternetGateway
-
-  PublicSubnet1:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref VPC
-      AvailabilityZone: !Select [0, !GetAZs '']
-      CidrBlock: !Ref PublicSubnet1Cidr
-      MapPublicIpOnLaunch: true
-      Tags:
-        - Key: Name
-          Value: ecs-cicd-public-subnet-az1
-
-  PublicSubnet2:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref VPC
-      AvailabilityZone: !Select [1, !GetAZs '']
-      CidrBlock: !Ref PublicSubnet2Cidr
-      MapPublicIpOnLaunch: true
-      Tags:
-        - Key: Name
-          Value: ecs-cicd-public-subnet-az2
-
-  PrivateSubnet1:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref VPC
-      AvailabilityZone: !Select [0, !GetAZs '']
-      CidrBlock: !Ref PrivateSubnet1Cidr
-      Tags:
-        - Key: Name
-          Value: ecs-cicd-private-subnet-az1
-
-  PrivateSubnet2:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref VPC
-      AvailabilityZone: !Select [1, !GetAZs '']
-      CidrBlock: !Ref PrivateSubnet2Cidr
-      Tags:
-        - Key: Name
-          Value: ecs-cicd-private-subnet-az2
-
-  PublicRouteTable:
-    Type: AWS::EC2::RouteTable
-    Properties:
-      VpcId: !Ref VPC
-      Tags:
-        - Key: Name
-          Value: ecs-cicd-public-rt
-
-  PublicRoute:
-    Type: AWS::EC2::Route
-    DependsOn: VPCGatewayAttachment
-    Properties:
-      RouteTableId: !Ref PublicRouteTable
-      DestinationCidrBlock: 0.0.0.0/0
-      GatewayId: !Ref InternetGateway
-
-  PublicSubnet1Association:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      RouteTableId: !Ref PublicRouteTable
-      SubnetId: !Ref PublicSubnet1
-
-  PublicSubnet2Association:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      RouteTableId: !Ref PublicRouteTable
-      SubnetId: !Ref PublicSubnet2
-
-  PrivateRouteTable1:
-    Type: AWS::EC2::RouteTable
-    Properties:
-      VpcId: !Ref VPC
-      Tags:
-        - Key: Name
-          Value: ecs-cicd-private-rt-az1
-
-  PrivateRouteTable2:
-    Type: AWS::EC2::RouteTable
-    Properties:
-      VpcId: !Ref VPC
-      Tags:
-        - Key: Name
-          Value: ecs-cicd-private-rt-az2
-
-  PrivateSubnet1Association:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      RouteTableId: !Ref PrivateRouteTable1
-      SubnetId: !Ref PrivateSubnet1
-
-  PrivateSubnet2Association:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      RouteTableId: !Ref PrivateRouteTable2
-      SubnetId: !Ref PrivateSubnet2
-
-  S3GatewayEndpoint:
-    Type: AWS::EC2::VPCEndpoint
-    Properties:
-      VpcId: !Ref VPC
-      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.s3'
-      VpcEndpointType: Gateway
-      RouteTableIds:
-        - !Ref PrivateRouteTable1
-        - !Ref PrivateRouteTable2
-
-  EndpointSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Allow HTTPS from ECS tasks to interface endpoints
-      VpcId: !Ref VPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 443
-          ToPort: 443
-          SourceSecurityGroupId: !Ref ECSTaskSecurityGroup
-      Tags:
-        - Key: Name
-          Value: ecs-cicd-endpoint-sg
-
-  EcrApiEndpoint:
+# 
+  SecretsManagerEndpoint:
     Type: AWS::EC2::VPCEndpoint
     Properties:
       VpcId: !Ref VPC
       VpcEndpointType: Interface
-      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ecr.api'
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.secretsmanager'
       PrivateDnsEnabled: true
       SubnetIds:
         - !Ref PrivateSubnet1
@@ -1058,31 +280,6 @@ Resources:
       SecurityGroupIds:
         - !Ref EndpointSecurityGroup
 
-  EcrDkrEndpoint:
-    Type: AWS::EC2::VPCEndpoint
-    Properties:
-      VpcId: !Ref VPC
-      VpcEndpointType: Interface
-      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ecr.dkr'
-      PrivateDnsEnabled: true
-      SubnetIds:
-        - !Ref PrivateSubnet1
-        - !Ref PrivateSubnet2
-      SecurityGroupIds:
-        - !Ref EndpointSecurityGroup
-
-  LogsEndpoint:
-    Type: AWS::EC2::VPCEndpoint
-    Properties:
-      VpcId: !Ref VPC
-      VpcEndpointType: Interface
-      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.logs'
-      PrivateDnsEnabled: true
-      SubnetIds:
-        - !Ref PrivateSubnet1
-        - !Ref PrivateSubnet2
-      SecurityGroupIds:
-        - !Ref EndpointSecurityGroup
 
   ALBSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -1227,6 +424,11 @@ Resources:
     Properties:
       VersioningConfiguration:
         Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
 
   CodePipelineServiceRole:
     Type: AWS::IAM::Role
@@ -1274,7 +476,10 @@ Resources:
               - Effect: Allow
                 Action:
                   - iam:PassRole
-                Resource: '*'
+                Resource:
+                  - !GetAtt TaskExecutionRole.Arn
+                  - !GetAtt TaskRole.Arn
+                  - !GetAtt CodeDeployServiceRole.Arn
 
   DeploymentPipeline:
     Type: AWS::CodePipeline::Pipeline
@@ -1380,6 +585,16 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: task-execution-secrets-access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Ref DatabaseSecret
+
 
   TaskDefinition:
     Type: AWS::ECS::TaskDefinition
@@ -1412,16 +627,18 @@ Resources:
               Value: !GetAtt PhotoDatabase.Endpoint.Port
             - Name: DB_NAME
               Value: !Ref DbName
-            - Name: DB_USERNAME
-              Value: !Ref DbUsername
-            - Name: DB_PASSWORD
-              Value: !Ref DbPassword
             - Name: S3_BUCKET_NAME
               Value: !Ref PhotoBucket
             - Name: CLOUDFRONT_DOMAIN
               Value: !GetAtt PhotoDistribution.DomainName
             - Name: AWS_REGION
               Value: !Ref AWS::Region
+          Secrets:
+            - Name: DB_USERNAME
+              ValueFrom: !Sub '${DatabaseSecret}:username::'
+            - Name: DB_PASSWORD
+              ValueFrom: !Sub '${DatabaseSecret}:password::'
+
 
 
   ECSService:
@@ -1496,15 +713,25 @@ Resources:
         - !Ref PrivateSubnet1
         - !Ref PrivateSubnet2
 
+  DatabaseSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      GenerateSecretString:
+        SecretStringTemplate: !Sub '{"username":"postgres"}'
+        GenerateStringKey: password
+        PasswordLength: 16
+        ExcludeCharacters: '"@/\'
+
   PhotoDatabase:
     Type: AWS::RDS::DBInstance
     Properties:
       Engine: postgres
+      StorageEncrypted: true
       DBInstanceClass: !Ref DbInstanceClass
       AllocatedStorage: !Ref DbAllocatedStorage
       DBName: !Ref DbName
-      MasterUsername: !Ref DbUsername
-      MasterUserPassword: !Ref DbPassword
+      MasterUsername: !Sub '{{resolve:secretsmanager:${DatabaseSecret}:SecretString:username}}'
+      MasterUserPassword: !Sub '{{resolve:secretsmanager:${DatabaseSecret}:SecretString:password}}'
       DBSubnetGroupName: !Ref DBSubnetGroup
       VPCSecurityGroups:
         - !Ref RDSSecurityGroup
@@ -1600,6 +827,11 @@ Resources:
                   - s3:PutObject
                   - s3:GetObject
                 Resource: !Sub '${PhotoBucket.Arn}/*'
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !GetAtt PhotoBucket.Arn
+              
 
 Outputs:
   ALBDNSName:
@@ -1637,20 +869,4 @@ Outputs:
     Description: PostgreSQL endpoint
     Value: !GetAtt PhotoDatabase.Endpoint.Address
 
-    Description: ALB target group ARN
-    Value: !Ref ApplicationTargetGroup
 
-# ================================================================
-# Photo lab outputs
-# ================================================================
-  PhotoBucketName:
-    Description: Private S3 bucket for uploaded images
-    Value: !Ref PhotoBucket
-
-  CloudFrontDomain:
-    Description: CloudFront distribution domain for image delivery
-    Value: !GetAtt PhotoDistribution.DomainName
-
-  RDSWriterEndpoint:
-    Description: PostgreSQL endpoint
-    Value: !GetAtt PhotoDatabase.Endpoint.Address

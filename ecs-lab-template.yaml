@@ -61,26 +61,6 @@ Parameters:
     Type: String
     Description: Full ECR image URI including tag
 
-#================================================================
-# Photo lab params. 
-#================================================================
-  DbName:
-    Type: String
-    Default: photodb
-
-  DbAllocatedStorage:
-    Type: Number
-    Default: 20
-
-  DbInstanceClass:
-    Type: String
-    Default: db.t3.micro
-
-  ImageBucketName:
-    Type: String
-    Description: Unique S3 bucket name for uploaded images
-
-
 Resources:
   VPC:
     Type: AWS::EC2::VPC
@@ -266,21 +246,6 @@ Resources:
       SecurityGroupIds:
         - !Ref EndpointSecurityGroup
 
-# 
-  SecretsManagerEndpoint:
-    Type: AWS::EC2::VPCEndpoint
-    Properties:
-      VpcId: !Ref VPC
-      VpcEndpointType: Interface
-      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.secretsmanager'
-      PrivateDnsEnabled: true
-      SubnetIds:
-        - !Ref PrivateSubnet1
-        - !Ref PrivateSubnet2
-      SecurityGroupIds:
-        - !Ref EndpointSecurityGroup
-
-
   ALBSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -368,67 +333,62 @@ Resources:
     Properties:
       ClusterName: ecs-cicd-cluster
 
-  # CodeDeployServiceRole:
-  #   Type: AWS::IAM::Role
-  #   Properties:
-  #     AssumeRolePolicyDocument:
-  #       Version: '2012-10-17'
-  #       Statement:
-  #         - Effect: Allow
-  #           Principal:
-  #             Service: codedeploy.amazonaws.com
-  #           Action: sts:AssumeRole
-  #     ManagedPolicyArns:
-  #       - arn:aws:iam::aws:policy/AWSCodeDeployRoleForECS
+  CodeDeployServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codedeploy.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSCodeDeployRoleForECS
 
 
-  # CodeDeployApplication:
-  #   Type: AWS::CodeDeploy::Application
-  #   Properties:
-  #     ComputePlatform: ECS
+  CodeDeployApplication:
+    Type: AWS::CodeDeploy::Application
+    Properties:
+      ComputePlatform: ECS
 
 
-  # CodeDeployDeploymentGroup:
-  #   Type: AWS::CodeDeploy::DeploymentGroup
-  #   Properties:
-  #     ApplicationName: !Ref CodeDeployApplication
-  #     DeploymentGroupName: ecs-blue-green-dg
-  #     ServiceRoleArn: !GetAtt CodeDeployServiceRole.Arn
-  #     DeploymentStyle:
-  #       DeploymentType: BLUE_GREEN
-  #       DeploymentOption: WITH_TRAFFIC_CONTROL
-  #     BlueGreenDeploymentConfiguration:
-  #       DeploymentReadyOption:
-  #         ActionOnTimeout: CONTINUE_DEPLOYMENT
-  #       TerminateBlueInstancesOnDeploymentSuccess:
-  #         Action: TERMINATE
-  #         TerminationWaitTimeInMinutes: 5
-  #     AutoRollbackConfiguration:
-  #       Enabled: true
-  #       Events:
-  #         - DEPLOYMENT_FAILURE
-  #     ECSServices:
-  #       - ClusterName: !Ref ECSCluster
-  #         ServiceName: !GetAtt ECSServiceV2.Name
-  #     LoadBalancerInfo:
-  #       TargetGroupPairInfoList:
-  #         - TargetGroups:
-  #             - Name: !GetAtt ApplicationTargetGroup.TargetGroupName
-  #             - Name: !GetAtt GreenTargetGroup.TargetGroupName
-  #           ProdTrafficRoute:
-  #             ListenerArns:
-  #               - !Ref Listener
+  CodeDeployDeploymentGroup:
+    Type: AWS::CodeDeploy::DeploymentGroup
+    Properties:
+      ApplicationName: !Ref CodeDeployApplication
+      DeploymentGroupName: ecs-blue-green-dg
+      ServiceRoleArn: !GetAtt CodeDeployServiceRole.Arn
+      DeploymentStyle:
+        DeploymentType: BLUE_GREEN
+        DeploymentOption: WITH_TRAFFIC_CONTROL
+      BlueGreenDeploymentConfiguration:
+        DeploymentReadyOption:
+          ActionOnTimeout: CONTINUE_DEPLOYMENT
+        TerminateBlueInstancesOnDeploymentSuccess:
+          Action: TERMINATE
+          TerminationWaitTimeInMinutes: 5
+      AutoRollbackConfiguration:
+        Enabled: true
+        Events:
+          - DEPLOYMENT_FAILURE
+      ECSServices:
+        - ClusterName: !Ref ECSCluster
+          ServiceName: !GetAtt ECSService.Name
+      LoadBalancerInfo:
+        TargetGroupPairInfoList:
+          - TargetGroups:
+              - Name: !GetAtt ApplicationTargetGroup.TargetGroupName
+              - Name: !GetAtt GreenTargetGroup.TargetGroupName
+            ProdTrafficRoute:
+              ListenerArns:
+                - !Ref Listener
 
   CodePipelineArtifactBucket:
     Type: AWS::S3::Bucket
     Properties:
       VersioningConfiguration:
         Status: Enabled
-      BucketEncryption:
-        ServerSideEncryptionConfiguration:
-          - ServerSideEncryptionByDefault:
-              SSEAlgorithm: AES256
-
 
   CodePipelineServiceRole:
     Type: AWS::IAM::Role
@@ -476,95 +436,92 @@ Resources:
               - Effect: Allow
                 Action:
                   - iam:PassRole
-                Resource:
-                  - !GetAtt TaskExecutionRole.Arn
-                  - !GetAtt TaskRole.Arn
-                  # - !GetAtt CodeDeployServiceRole.Arn
+                Resource: '*'
 
-  # DeploymentPipeline:
-  #   Type: AWS::CodePipeline::Pipeline
-  #   Properties:
-  #     RoleArn: !GetAtt CodePipelineServiceRole.Arn
-  #     ArtifactStore:
-  #       Type: S3
-  #       Location: !Ref CodePipelineArtifactBucket
-  #     Stages:
-  #       - Name: Source
-  #         Actions:
-  #           - Name: SourceArtifact
-  #             ActionTypeId:
-  #               Category: Source
-  #               Owner: AWS
-  #               Provider: S3
-  #               Version: '1'
-  #             Configuration:
-  #               S3Bucket: !Ref CodePipelineArtifactBucket
-  #               S3ObjectKey: placeholder.zip
-  #               PollForSourceChanges: false
-  #             OutputArtifacts:
-  #               - Name: SourceOutput
-  #             RunOrder: 1
-  #       - Name: Deploy
-  #         Actions:
-  #           - Name: ECSBlueGreenDeploy
-  #             ActionTypeId:
-  #               Category: Deploy
-  #               Owner: AWS
-  #               Provider: CodeDeployToECS
-  #               Version: '1'
-  #             Configuration:
-  #               ApplicationName: !Ref CodeDeployApplication
-  #               DeploymentGroupName: !Ref CodeDeployDeploymentGroup
-  #               TaskDefinitionTemplateArtifact: SourceOutput
-  #               AppSpecTemplateArtifact: SourceOutput
-  #               AppSpecTemplatePath: appspec.yaml
-  #               TaskDefinitionTemplatePath: taskdef.json
-  #             InputArtifacts:
-  #               - Name: SourceOutput
-  #             RunOrder: 1
+  DeploymentPipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      RoleArn: !GetAtt CodePipelineServiceRole.Arn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref CodePipelineArtifactBucket
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: SourceArtifact
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: S3
+                Version: '1'
+              Configuration:
+                S3Bucket: !Ref CodePipelineArtifactBucket
+                S3ObjectKey: placeholder.zip
+                PollForSourceChanges: false
+              OutputArtifacts:
+                - Name: SourceOutput
+              RunOrder: 1
+        - Name: Deploy
+          Actions:
+            - Name: ECSBlueGreenDeploy
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CodeDeployToECS
+                Version: '1'
+              Configuration:
+                ApplicationName: !Ref CodeDeployApplication
+                DeploymentGroupName: !Ref CodeDeployDeploymentGroup
+                TaskDefinitionTemplateArtifact: SourceOutput
+                AppSpecTemplateArtifact: SourceOutput
+                AppSpecTemplatePath: appspec.yaml
+                TaskDefinitionTemplatePath: taskdef.json
+              InputArtifacts:
+                - Name: SourceOutput
+              RunOrder: 1
 
-  # EcrImagePushRule:
-  #   Type: AWS::Events::Rule
-  #   Properties:
-  #     Description: Trigger CodePipeline when a new image is pushed to ECR
-  #     EventPattern:
-  #       source:
-  #         - aws.ecr
-  #       detail-type:
-  #         - ECR Image Action
-  #       detail:
-  #         action-type:
-  #           - PUSH
-  #         result:
-  #           - SUCCESS
-  #         repository-name:
-  #           - saki-ecs-cicd-lab
-  #     State: ENABLED
-  #     Targets:
-  #       - Arn: !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${DeploymentPipeline}
-  #         Id: CodePipelineTarget
-  #         RoleArn: !GetAtt EventBridgeInvokePipelineRole.Arn
+  EcrImagePushRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Trigger CodePipeline when a new image is pushed to ECR
+      EventPattern:
+        source:
+          - aws.ecr
+        detail-type:
+          - ECR Image Action
+        detail:
+          action-type:
+            - PUSH
+          result:
+            - SUCCESS
+          repository-name:
+            - saki-ecs-cicd-lab
+      State: ENABLED
+      Targets:
+        - Arn: !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${DeploymentPipeline}
+          Id: CodePipelineTarget
+          RoleArn: !GetAtt EventBridgeInvokePipelineRole.Arn
 
 
-  # EventBridgeInvokePipelineRole:
-  #   Type: AWS::IAM::Role
-  #   Properties:
-  #     AssumeRolePolicyDocument:
-  #       Version: '2012-10-17'
-  #       Statement:
-  #         - Effect: Allow
-  #           Principal:
-  #             Service: events.amazonaws.com
-  #           Action: sts:AssumeRole
-  #     Policies:
-  #       - PolicyName: eventbridge-start-pipeline
-  #         PolicyDocument:
-  #           Version: '2012-10-17'
-  #           Statement:
-  #             - Effect: Allow
-  #               Action:
-  #                 - codepipeline:StartPipelineExecution
-  #               Resource: !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${DeploymentPipeline}
+  EventBridgeInvokePipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: eventbridge-start-pipeline
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - codepipeline:StartPipelineExecution
+                Resource: !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${DeploymentPipeline}
 
 
   AppLogGroup:
@@ -585,16 +542,6 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
-      Policies:
-        - PolicyName: task-execution-secrets-access
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - secretsmanager:GetSecretValue
-                Resource: !Ref DatabaseSecret
-
 
   TaskDefinition:
     Type: AWS::ECS::TaskDefinition
@@ -606,7 +553,6 @@ Resources:
       RequiresCompatibilities:
         - FARGATE
       ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
-      TaskRoleArn: !GetAtt TaskRole.Arn
       ContainerDefinitions:
         - Name: ecs-cicd-java-app
           Image: !Ref EcrImageUri
@@ -620,37 +566,18 @@ Resources:
               awslogs-group: !Ref AppLogGroup
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: ecs
-          Environment:
-            - Name: DB_HOST
-              Value: !GetAtt PhotoDatabase.Endpoint.Address
-            - Name: DB_PORT
-              Value: !GetAtt PhotoDatabase.Endpoint.Port
-            - Name: DB_NAME
-              Value: !Ref DbName
-            - Name: S3_BUCKET_NAME
-              Value: !Ref PhotoBucket
-            - Name: CLOUDFRONT_DOMAIN
-              Value: !GetAtt PhotoDistribution.DomainName
-            - Name: AWS_REGION
-              Value: !Ref AWS::Region
-          Secrets:
-            - Name: DB_USERNAME
-              ValueFrom: !Sub '${DatabaseSecret}:username::'
-            - Name: DB_PASSWORD
-              ValueFrom: !Sub '${DatabaseSecret}:password::'
 
-  ECSServiceV2:
+  ECSService:
     Type: AWS::ECS::Service
     DependsOn:
       - Listener
-      - ApplicationTargetGroup
     Properties:
       Cluster: !Ref ECSCluster
       LaunchType: FARGATE
       DesiredCount: !Ref DesiredTaskCount
       TaskDefinition: !Ref TaskDefinition
-      # DeploymentController:
-      #   Type: CODE_DEPLOY
+      DeploymentController:
+        Type: CODE_DEPLOY
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: DISABLED
@@ -669,7 +596,7 @@ Resources:
     Properties:
       MaxCapacity: !Ref MaxTaskCount
       MinCapacity: !Ref MinTaskCount
-      ResourceId: !Sub 'service/${ECSCluster}/${ECSServiceV2.Name}'
+      ResourceId: !Sub 'service/${ECSCluster}/${ECSService.Name}'
       RoleARN: !Sub 'arn:aws:iam::${AWS::AccountId}:role/aws-service-role/ecs.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_ECSService'
       ScalableDimension: ecs:service:DesiredCount
       ServiceNamespace: ecs
@@ -687,151 +614,6 @@ Resources:
         ScaleInCooldown: 60
         ScaleOutCooldown: 60
 
-# ================================================================
-# Photo lab resources
-# ================================================================
-  RDSSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Allow PostgreSQL only from ECS tasks
-      VpcId: !Ref VPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 5432
-          ToPort: 5432
-          SourceSecurityGroupId: !Ref ECSTaskSecurityGroup
-      Tags:
-        - Key: Name
-          Value: ecs-photo-rds-sg
-
-  DBSubnetGroup:
-    Type: AWS::RDS::DBSubnetGroup
-    Properties:
-      DBSubnetGroupDescription: Private subnets for PostgreSQL
-      SubnetIds:
-        - !Ref PrivateSubnet1
-        - !Ref PrivateSubnet2
-
-  DatabaseSecret:
-    Type: AWS::SecretsManager::Secret
-    Properties:
-      GenerateSecretString:
-        SecretStringTemplate: !Sub '{"username":"postgres"}'
-        GenerateStringKey: password
-        PasswordLength: 16
-        ExcludeCharacters: '"@/\'
-
-  PhotoDatabase:
-    Type: AWS::RDS::DBInstance
-    Properties:
-      Engine: postgres
-      StorageEncrypted: true
-      DBInstanceClass: !Ref DbInstanceClass
-      AllocatedStorage: !Ref DbAllocatedStorage
-      DBName: !Ref DbName
-      MasterUsername: !Sub '{{resolve:secretsmanager:${DatabaseSecret}:SecretString:username}}'
-      MasterUserPassword: !Sub '{{resolve:secretsmanager:${DatabaseSecret}:SecretString:password}}'
-      DBSubnetGroupName: !Ref DBSubnetGroup
-      VPCSecurityGroups:
-        - !Ref RDSSecurityGroup
-      PubliclyAccessible: false
-      MultiAZ: false
-      BackupRetentionPeriod: 0
-      DeletionProtection: false
-
-  PhotoBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Ref ImageBucketName
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
-
-# allows Cloudfront to access the private S3 bucket without making it public
-  PhotoBucketOAC:
-    Type: AWS::CloudFront::OriginAccessControl
-    Properties:
-      OriginAccessControlConfig:
-        Name: photo-bucket-oac
-        OriginAccessControlOriginType: s3
-        SigningBehavior: always
-        SigningProtocol: sigv4
-
-# serves photos from the S3 bucket via CloudFront with caching and HTTPS
-  PhotoDistribution:
-    Type: AWS::CloudFront::Distribution
-    Properties:
-      DistributionConfig:
-        Enabled: true
-        PriceClass: PriceClass_200
-        Origins:
-          - DomainName: !GetAtt PhotoBucket.RegionalDomainName
-            Id: PhotoBucketOrigin
-            S3OriginConfig: {}
-            OriginAccessControlId: !GetAtt PhotoBucketOAC.Id
-        DefaultCacheBehavior:
-          TargetOriginId: PhotoBucketOrigin
-          ViewerProtocolPolicy: redirect-to-https
-          AllowedMethods:
-            - GET
-            - HEAD
-          CachedMethods:
-            - GET
-            - HEAD
-          Compress: true
-          ForwardedValues:
-            QueryString: false
-            Cookies:
-              Forward: none
-
-# keeps the S3 bucket private while allowing CloudFront to read objects for distribution
-  PhotoBucketPolicy:
-    Type: AWS::S3::BucketPolicy
-    DependsOn: PhotoDistribution
-    Properties:
-      Bucket: !Ref PhotoBucket
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Sid: AllowCloudFrontReadOnly
-            Effect: Allow
-            Principal:
-              Service: cloudfront.amazonaws.com
-            Action: s3:GetObject
-            Resource: !Sub '${PhotoBucket.Arn}/*'
-            Condition:
-              StringEquals:
-                AWS:SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${PhotoDistribution}'
-
-# application uses this role for s3 uploads and downloads without exposing credentials in the task definition
-  TaskRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: ecs-tasks.amazonaws.com
-            Action: sts:AssumeRole
-      Policies:
-        - PolicyName: photo-app-s3-policy
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - s3:PutObject
-                  - s3:GetObject
-                Resource: !Sub '${PhotoBucket.Arn}/*'
-              - Effect: Allow
-                Action:
-                  - s3:ListBucket
-                Resource: !GetAtt PhotoBucket.Arn
-              
-
 Outputs:
   ALBDNSName:
     Description: Public ALB DNS name
@@ -847,25 +629,8 @@ Outputs:
 
   ECSServiceName:
     Description: ECS service name
-    Value: !GetAtt ECSServiceV2.Name
+    Value: !GetAtt ECSService.Name
 
   TargetGroupArn:
     Description: ALB target group ARN
     Value: !Ref ApplicationTargetGroup
-
-# ================================================================
-# Photo lab outputs
-# ================================================================
-  PhotoBucketName:
-    Description: Private S3 bucket for uploaded images
-    Value: !Ref PhotoBucket
-
-  CloudFrontDomain:
-    Description: CloudFront distribution domain for image delivery
-    Value: !GetAtt PhotoDistribution.DomainName
-
-  RDSWriterEndpoint:
-    Description: PostgreSQL endpoint
-    Value: !GetAtt PhotoDatabase.Endpoint.Address
-
-

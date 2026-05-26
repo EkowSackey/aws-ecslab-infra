@@ -3,5 +3,4 @@ parameters:
   DesiredTaskCount: 1
   MinTaskCount: 1
   MaxTaskCount: 4
-  EcrImageUri: 593793048595.dkr.ecr.eu-central-1.amazonaws.com/saki-ecs-cicd-lab:ekowniisakisackey_ecsjavaapp
-  ImageBucketName: saki-ecs-cicd-lab-photos
+  EcrImageUri: ${vars.AWS_ACCOUNT_ID}.dkr.ecr.eu-central-1.amazonaws.com/saki-ecs-cicd-lab:ekowniisakisackey_ecsjavaapp

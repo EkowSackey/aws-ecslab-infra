@@ -639,12 +639,11 @@ Resources:
             - Name: DB_PASSWORD
               ValueFrom: !Sub '${DatabaseSecret}:password::'
 
-
-
   ECSServiceV2:
     Type: AWS::ECS::Service
     DependsOn:
       - Listener
+      - ApplicationTargetGroup
     Properties:
       Cluster: !Ref ECSCluster
       LaunchType: FARGATE

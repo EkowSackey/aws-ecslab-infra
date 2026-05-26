@@ -409,7 +409,7 @@ Resources:
   #         - DEPLOYMENT_FAILURE
   #     ECSServices:
   #       - ClusterName: !Ref ECSCluster
-  #         ServiceName: !GetAtt ECSService.Name
+  #         ServiceName: !GetAtt ECSServiceV2.Name
   #     LoadBalancerInfo:
   #       TargetGroupPairInfoList:
   #         - TargetGroups:
@@ -641,7 +641,7 @@ Resources:
 
 
 
-  ECSService:
+  ECSServiceV2:
     Type: AWS::ECS::Service
     DependsOn:
       - Listener
@@ -670,7 +670,7 @@ Resources:
     Properties:
       MaxCapacity: !Ref MaxTaskCount
       MinCapacity: !Ref MinTaskCount
-      ResourceId: !Sub 'service/${ECSCluster}/${ECSService.Name}'
+      ResourceId: !Sub 'service/${ECSCluster}/${ECSServiceV2.Name}'
       RoleARN: !Sub 'arn:aws:iam::${AWS::AccountId}:role/aws-service-role/ecs.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_ECSService'
       ScalableDimension: ecs:service:DesiredCount
       ServiceNamespace: ecs
@@ -848,7 +848,7 @@ Outputs:
 
   ECSServiceName:
     Description: ECS service name
-    Value: !GetAtt ECSService.Name
+    Value: !GetAtt ECSServiceV2.Name
 
   TargetGroupArn:
     Description: ALB target group ARN

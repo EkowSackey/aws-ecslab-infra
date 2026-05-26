@@ -368,56 +368,56 @@ Resources:
     Properties:
       ClusterName: ecs-cicd-cluster
 
-  CodeDeployServiceRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: codedeploy.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/AWSCodeDeployRoleForECS
+  # CodeDeployServiceRole:
+  #   Type: AWS::IAM::Role
+  #   Properties:
+  #     AssumeRolePolicyDocument:
+  #       Version: '2012-10-17'
+  #       Statement:
+  #         - Effect: Allow
+  #           Principal:
+  #             Service: codedeploy.amazonaws.com
+  #           Action: sts:AssumeRole
+  #     ManagedPolicyArns:
+  #       - arn:aws:iam::aws:policy/AWSCodeDeployRoleForECS
 
 
-  CodeDeployApplication:
-    Type: AWS::CodeDeploy::Application
-    Properties:
-      ComputePlatform: ECS
+  # CodeDeployApplication:
+  #   Type: AWS::CodeDeploy::Application
+  #   Properties:
+  #     ComputePlatform: ECS
 
 
-  CodeDeployDeploymentGroup:
-    Type: AWS::CodeDeploy::DeploymentGroup
-    Properties:
-      ApplicationName: !Ref CodeDeployApplication
-      DeploymentGroupName: ecs-blue-green-dg
-      ServiceRoleArn: !GetAtt CodeDeployServiceRole.Arn
-      DeploymentStyle:
-        DeploymentType: BLUE_GREEN
-        DeploymentOption: WITH_TRAFFIC_CONTROL
-      BlueGreenDeploymentConfiguration:
-        DeploymentReadyOption:
-          ActionOnTimeout: CONTINUE_DEPLOYMENT
-        TerminateBlueInstancesOnDeploymentSuccess:
-          Action: TERMINATE
-          TerminationWaitTimeInMinutes: 5
-      AutoRollbackConfiguration:
-        Enabled: true
-        Events:
-          - DEPLOYMENT_FAILURE
-      ECSServices:
-        - ClusterName: !Ref ECSCluster
-          ServiceName: !GetAtt ECSService.Name
-      LoadBalancerInfo:
-        TargetGroupPairInfoList:
-          - TargetGroups:
-              - Name: !GetAtt ApplicationTargetGroup.TargetGroupName
-              - Name: !GetAtt GreenTargetGroup.TargetGroupName
-            ProdTrafficRoute:
-              ListenerArns:
-                - !Ref Listener
+  # CodeDeployDeploymentGroup:
+  #   Type: AWS::CodeDeploy::DeploymentGroup
+  #   Properties:
+  #     ApplicationName: !Ref CodeDeployApplication
+  #     DeploymentGroupName: ecs-blue-green-dg
+  #     ServiceRoleArn: !GetAtt CodeDeployServiceRole.Arn
+  #     DeploymentStyle:
+  #       DeploymentType: BLUE_GREEN
+  #       DeploymentOption: WITH_TRAFFIC_CONTROL
+  #     BlueGreenDeploymentConfiguration:
+  #       DeploymentReadyOption:
+  #         ActionOnTimeout: CONTINUE_DEPLOYMENT
+  #       TerminateBlueInstancesOnDeploymentSuccess:
+  #         Action: TERMINATE
+  #         TerminationWaitTimeInMinutes: 5
+  #     AutoRollbackConfiguration:
+  #       Enabled: true
+  #       Events:
+  #         - DEPLOYMENT_FAILURE
+  #     ECSServices:
+  #       - ClusterName: !Ref ECSCluster
+  #         ServiceName: !GetAtt ECSService.Name
+  #     LoadBalancerInfo:
+  #       TargetGroupPairInfoList:
+  #         - TargetGroups:
+  #             - Name: !GetAtt ApplicationTargetGroup.TargetGroupName
+  #             - Name: !GetAtt GreenTargetGroup.TargetGroupName
+  #           ProdTrafficRoute:
+  #             ListenerArns:
+  #               - !Ref Listener
 
   CodePipelineArtifactBucket:
     Type: AWS::S3::Bucket
@@ -479,92 +479,92 @@ Resources:
                 Resource:
                   - !GetAtt TaskExecutionRole.Arn
                   - !GetAtt TaskRole.Arn
-                  - !GetAtt CodeDeployServiceRole.Arn
+                  # - !GetAtt CodeDeployServiceRole.Arn
 
-  DeploymentPipeline:
-    Type: AWS::CodePipeline::Pipeline
-    Properties:
-      RoleArn: !GetAtt CodePipelineServiceRole.Arn
-      ArtifactStore:
-        Type: S3
-        Location: !Ref CodePipelineArtifactBucket
-      Stages:
-        - Name: Source
-          Actions:
-            - Name: SourceArtifact
-              ActionTypeId:
-                Category: Source
-                Owner: AWS
-                Provider: S3
-                Version: '1'
-              Configuration:
-                S3Bucket: !Ref CodePipelineArtifactBucket
-                S3ObjectKey: placeholder.zip
-                PollForSourceChanges: false
-              OutputArtifacts:
-                - Name: SourceOutput
-              RunOrder: 1
-        - Name: Deploy
-          Actions:
-            - Name: ECSBlueGreenDeploy
-              ActionTypeId:
-                Category: Deploy
-                Owner: AWS
-                Provider: CodeDeployToECS
-                Version: '1'
-              Configuration:
-                ApplicationName: !Ref CodeDeployApplication
-                DeploymentGroupName: !Ref CodeDeployDeploymentGroup
-                TaskDefinitionTemplateArtifact: SourceOutput
-                AppSpecTemplateArtifact: SourceOutput
-                AppSpecTemplatePath: appspec.yaml
-                TaskDefinitionTemplatePath: taskdef.json
-              InputArtifacts:
-                - Name: SourceOutput
-              RunOrder: 1
+  # DeploymentPipeline:
+  #   Type: AWS::CodePipeline::Pipeline
+  #   Properties:
+  #     RoleArn: !GetAtt CodePipelineServiceRole.Arn
+  #     ArtifactStore:
+  #       Type: S3
+  #       Location: !Ref CodePipelineArtifactBucket
+  #     Stages:
+  #       - Name: Source
+  #         Actions:
+  #           - Name: SourceArtifact
+  #             ActionTypeId:
+  #               Category: Source
+  #               Owner: AWS
+  #               Provider: S3
+  #               Version: '1'
+  #             Configuration:
+  #               S3Bucket: !Ref CodePipelineArtifactBucket
+  #               S3ObjectKey: placeholder.zip
+  #               PollForSourceChanges: false
+  #             OutputArtifacts:
+  #               - Name: SourceOutput
+  #             RunOrder: 1
+  #       - Name: Deploy
+  #         Actions:
+  #           - Name: ECSBlueGreenDeploy
+  #             ActionTypeId:
+  #               Category: Deploy
+  #               Owner: AWS
+  #               Provider: CodeDeployToECS
+  #               Version: '1'
+  #             Configuration:
+  #               ApplicationName: !Ref CodeDeployApplication
+  #               DeploymentGroupName: !Ref CodeDeployDeploymentGroup
+  #               TaskDefinitionTemplateArtifact: SourceOutput
+  #               AppSpecTemplateArtifact: SourceOutput
+  #               AppSpecTemplatePath: appspec.yaml
+  #               TaskDefinitionTemplatePath: taskdef.json
+  #             InputArtifacts:
+  #               - Name: SourceOutput
+  #             RunOrder: 1
 
-  EcrImagePushRule:
-    Type: AWS::Events::Rule
-    Properties:
-      Description: Trigger CodePipeline when a new image is pushed to ECR
-      EventPattern:
-        source:
-          - aws.ecr
-        detail-type:
-          - ECR Image Action
-        detail:
-          action-type:
-            - PUSH
-          result:
-            - SUCCESS
-          repository-name:
-            - saki-ecs-cicd-lab
-      State: ENABLED
-      Targets:
-        - Arn: !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${DeploymentPipeline}
-          Id: CodePipelineTarget
-          RoleArn: !GetAtt EventBridgeInvokePipelineRole.Arn
+  # EcrImagePushRule:
+  #   Type: AWS::Events::Rule
+  #   Properties:
+  #     Description: Trigger CodePipeline when a new image is pushed to ECR
+  #     EventPattern:
+  #       source:
+  #         - aws.ecr
+  #       detail-type:
+  #         - ECR Image Action
+  #       detail:
+  #         action-type:
+  #           - PUSH
+  #         result:
+  #           - SUCCESS
+  #         repository-name:
+  #           - saki-ecs-cicd-lab
+  #     State: ENABLED
+  #     Targets:
+  #       - Arn: !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${DeploymentPipeline}
+  #         Id: CodePipelineTarget
+  #         RoleArn: !GetAtt EventBridgeInvokePipelineRole.Arn
 
 
-  EventBridgeInvokePipelineRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: events.amazonaws.com
-            Action: sts:AssumeRole
-      Policies:
-        - PolicyName: eventbridge-start-pipeline
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - codepipeline:StartPipelineExecution
-                Resource: !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${DeploymentPipeline}
+  # EventBridgeInvokePipelineRole:
+  #   Type: AWS::IAM::Role
+  #   Properties:
+  #     AssumeRolePolicyDocument:
+  #       Version: '2012-10-17'
+  #       Statement:
+  #         - Effect: Allow
+  #           Principal:
+  #             Service: events.amazonaws.com
+  #           Action: sts:AssumeRole
+  #     Policies:
+  #       - PolicyName: eventbridge-start-pipeline
+  #         PolicyDocument:
+  #           Version: '2012-10-17'
+  #           Statement:
+  #             - Effect: Allow
+  #               Action:
+  #                 - codepipeline:StartPipelineExecution
+  #               Resource: !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${DeploymentPipeline}
 
 
   AppLogGroup:
@@ -650,8 +650,8 @@ Resources:
       LaunchType: FARGATE
       DesiredCount: !Ref DesiredTaskCount
       TaskDefinition: !Ref TaskDefinition
-      DeploymentController:
-        Type: CODE_DEPLOY
+      # DeploymentController:
+      #   Type: CODE_DEPLOY
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: DISABLED
